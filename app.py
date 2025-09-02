@@ -48,9 +48,21 @@ with st.expander("See JSON schema and example", expanded=False):
 with tab_upload:
     if uploaded is not None:
         try:
-            data = json.loads(uploaded.read().decode("utf-8"))
-            tmp = Path("uploaded_items.json")
-            tmp.write_text(json.dumps(data), encoding="utf-8")
+            @st.cache_data(show_spinner=False)
+            def _parse_json_bytes(b: bytes):
+                return json.loads(b.decode("utf-8"))
+
+            data = _parse_json_bytes(uploaded.read())
+            # Build items in-memory to avoid file I/O
+            items = []
+            for entry in data.get("items", []):
+                items.append({
+                    "description": entry.get("description", "Item"),
+                    "price": str(entry.get("price", "0")),
+                    "quantity": int(entry.get("quantity", 1)),
+                })
+            tmp = Path("_mem.json")
+            tmp.write_text(json.dumps({"items": items}), encoding="utf-8")
             items = load_items_from_json(tmp)
             receipt = build_receipt(items, Decimal(str(tax)), currency)
             st.subheader("Receipt")
