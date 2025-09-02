@@ -1,79 +1,121 @@
-"""Simple shopping receipt generator."""
+"""Shopping receipt generator with CLI, JSON input, and Decimal math.
 
-# Product Descriptions and Prices
-lovely_loveseat_description = (
-    "Lovely Loveseat. Tufted polyester blend on wood. 32 inches high x 40 inches "
-    "wide x 30 inches deep. Red or white."
-)
-lovely_loveseat_price = 254.00
+Usage examples:
+  python3 receipt_generator.py --items sample_order.json --tax 0.088
+  python3 receipt_generator.py --items sample_order.json --currency "₹" --output receipt.txt
 
-stylish_settee_description = (
-    "Stylish Settee. Faux leather on birch. 29.50 inches high x 54.75 inches wide "
-    "x 28 inches deep. Black"
-)
-stylish_settee_price = 180.50
+JSON schema for --items:
+{
+  "items": [
+    {"description": "Lovely Loveseat", "price": "254.00", "quantity": 1},
+    {"description": "Luxurious Lamp",   "price": "52.15",  "quantity": 1}
+  ]
+}
+"""
 
-luxurious_lamp_description = (
-    "Luxurious Lamp. Glass and iron. 36 inches tall. Brown base with cream shade."
-)
-luxurious_lamp_price = 52.15
+from __future__ import annotations
 
-# Sales Tax Rate
-sales_tax = 0.088
+import argparse
+import json
+from dataclasses import dataclass
+from decimal import Decimal, ROUND_HALF_UP, getcontext
+from pathlib import Path
+from typing import List, Optional
 
-# Customer One Purchase Summary
-customer_one_total = 0.0
-customer_one_itemization = ""
 
-# Add Lovely Loveseat
-customer_one_total += lovely_loveseat_price
-customer_one_itemization += lovely_loveseat_description + "\n"
+# Configure Decimal for currency-safe math
+getcontext().prec = 28
 
-# Add Luxurious Lamp
-customer_one_total += luxurious_lamp_price
-customer_one_itemization += luxurious_lamp_description + "\n"
 
-# Calculate Tax and Final Total
-customer_one_tax = customer_one_total * sales_tax
-customer_one_total += customer_one_tax
+@dataclass
+class LineItem:
+    description: str
+    price: Decimal
+    quantity: int = 1
 
-# Print Receipt
-print("Customer One Items:")
-print(customer_one_itemization)
-print("Customer One Total:")
-print(f"${customer_one_total:.2f}")
+    def line_total(self) -> Decimal:
+        return (self.price * Decimal(self.quantity)).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
 
-# Product Descriptions and Prices
-lovely_loveseat_description = "Lovely Loveseat. Tufted polyester blend on wood. 32 inches high x 40 inches wide x 30 inches deep. Red or white."
-lovely_loveseat_price = 254.00
 
-stylish_settee_description = "Stylish Settee. Faux leather on birch. 29.50 inches high x 54.75 inches wide x 28 inches deep. Black"
-stylish_settee_price = 180.50
+def load_items_from_json(json_path: Path) -> List[LineItem]:
+    data = json.loads(Path(json_path).read_text(encoding="utf-8"))
+    raw_items = data.get("items", [])
+    items: List[LineItem] = []
+    for entry in raw_items:
+        description = str(entry.get("description", "Item"))
+        price = Decimal(str(entry.get("price", "0")))
+        quantity = int(entry.get("quantity", 1))
+        items.append(LineItem(description=description, price=price, quantity=quantity))
+    return items
 
-luxurious_lamp_description = "Luxurious Lamp. Glass and iron. 36 inches tall. Brown base with cream shade."
-luxurious_lamp_price = 52.15
 
-# Sales Tax Rate
-sales_tax = 0.088
+def format_money(value: Decimal, currency_symbol: str) -> str:
+    return f"{currency_symbol}{value.quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)}"
 
-# Customer One Purchase Summary
-customer_one_total = 0
-customer_one_itemization = ""
 
-# Add Lovely Loveseat
-customer_one_total += lovely_loveseat_price
-customer_one_itemization += lovely_loveseat_description + "\n"
+def build_receipt(items: List[LineItem], tax_rate: Decimal, currency_symbol: str) -> str:
+    lines: List[str] = []
+    lines.append("Items:")
+    subtotal = Decimal("0")
+    for item in items:
+        total = item.line_total()
+        lines.append(
+            f"- {item.description} x {item.quantity} @ {format_money(item.price, currency_symbol)} = {format_money(total, currency_symbol)}"
+        )
+        subtotal += total
 
-# Add Luxurious Lamp
-customer_one_total += luxurious_lamp_price
-customer_one_itemization += luxurious_lamp_description + "\n"
+    tax = (subtotal * tax_rate).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+    grand_total = (subtotal + tax).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
 
-# Calculate Tax and Final Total
-customer_one_tax = customer_one_total * sales_tax
-customer_one_total += customer_one_tax
+    lines.append("")
+    lines.append(f"Subtotal: {format_money(subtotal, currency_symbol)}")
+    lines.append(f"Tax ({(tax_rate*Decimal('100')).normalize()}%): {format_money(tax, currency_symbol)}")
+    lines.append(f"Total: {format_money(grand_total, currency_symbol)}")
 
-# Print Receipt
-print("Customer One Items:")
-print(customer_one_itemization)
-print("Customer One Total:")
-print(f"${customer_one_total:.2f}")
+    return "\n".join(lines)
+
+
+def parse_args(argv: Optional[List[str]] = None) -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description="Generate a shopping receipt from JSON items.")
+    parser.add_argument(
+        "--items",
+        required=True,
+        help="Path to JSON file with items (see README for schema)",
+    )
+    parser.add_argument(
+        "--tax",
+        default="0.088",
+        help="Sales tax rate as decimal (e.g., 0.088 for 8.8%)",
+    )
+    parser.add_argument(
+        "--currency",
+        default="$",
+        help="Currency symbol to prefix amounts (default: $)",
+    )
+    parser.add_argument(
+        "--output",
+        default=None,
+        help="Optional path to write the receipt. If omitted, prints to stdout.",
+    )
+    return parser.parse_args(argv)
+
+
+def main() -> None:
+    args = parse_args()
+    items_path = Path(args.items)
+    if not items_path.exists():
+        raise SystemExit(f"Items file not found: {items_path}")
+
+    items = load_items_from_json(items_path)
+    tax_rate = Decimal(str(args.tax))
+    receipt = build_receipt(items=items, tax_rate=tax_rate, currency_symbol=args.currency)
+
+    if args.output:
+        Path(args.output).write_text(receipt + "\n", encoding="utf-8")
+        print(f"Receipt written to {args.output}")
+    else:
+        print(receipt)
+
+
+if __name__ == "__main__":
+    main()

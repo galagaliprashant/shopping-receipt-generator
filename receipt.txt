@@ -1,0 +1,7 @@
+Items:
+- Lovely Loveseat x 1 @ $254.00 = $254.00
+- Luxurious Lamp x 1 @ $52.15 = $52.15
+
+Subtotal: $306.15
+Tax (8.8%): $26.94
+Total: $333.09
