@@ -4,13 +4,21 @@ from decimal import Decimal
 from pathlib import Path
 
 import streamlit as st
+import runpy
 
 # Ensure local repo root is importable in hosted environments
 CURRENT_DIR = Path(__file__).resolve().parent
 if str(CURRENT_DIR) not in sys.path:
     sys.path.insert(0, str(CURRENT_DIR))
 
-from receipt_generator import load_items_from_json, build_receipt
+# Try normal import, then fall back to loading by path
+try:
+    from receipt_generator import load_items_from_json, build_receipt  # type: ignore
+except Exception:  # pragma: no cover
+    module_path = CURRENT_DIR / "receipt_generator.py"
+    module_ns = runpy.run_path(str(module_path))
+    load_items_from_json = module_ns["load_items_from_json"]
+    build_receipt = module_ns["build_receipt"]
 
 
 st.set_page_config(page_title="Receipt Generator", page_icon="🧾", layout="centered")
