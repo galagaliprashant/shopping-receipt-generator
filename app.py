@@ -1,8 +1,14 @@
 import json
+import sys
 from decimal import Decimal
 from pathlib import Path
 
 import streamlit as st
+
+# Ensure local repo root is importable in hosted environments
+CURRENT_DIR = Path(__file__).resolve().parent
+if str(CURRENT_DIR) not in sys.path:
+    sys.path.insert(0, str(CURRENT_DIR))
 
 from receipt_generator import load_items_from_json, build_receipt
 
